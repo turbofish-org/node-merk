@@ -1,0 +1,14 @@
+{
+  "name": "node-merk",
+  "version": "0.1.0",
+  "description": "Node.js bindings for Merk",
+  "main": "lib/index.js",
+  "author": "Matt Bell <mappum@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "neon-cli": "^0.3.1"
+  },
+  "scripts": {
+    "install": "neon build"
+  }
+}

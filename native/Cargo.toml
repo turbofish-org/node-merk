@@ -1,0 +1,18 @@
+[package]
+name = "node-merk"
+version = "0.1.0"
+authors = ["Matt Bell <mappum@gmail.com>"]
+license = "MIT"
+build = "build.rs"
+exclude = ["artifacts.json", "index.node"]
+
+[lib]
+name = "node_merk"
+crate-type = ["cdylib"]
+
+[build-dependencies]
+neon-build = "0.3.1"
+
+[dependencies]
+neon = "0.3.1"
+merk = "1.0.0-alpha.1"
