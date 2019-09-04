@@ -6,7 +6,8 @@
   "author": "Matt Bell <mappum@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "neon-cli": "^0.3.1"
+    "neon-cli": "^0.3.1",
+    "old": "^0.2.0"
   },
   "scripts": {
     "install": "neon build"
