@@ -94,6 +94,34 @@ declare_types! {
 
             Ok(cx.undefined().upcast())
         }
+
+        method prove(mut cx) {
+            let upcasted_query = cx.argument::<JsArray>(0)?.to_vec(&mut cx)?;
+            let mut query = Vec::with_capacity(upcasted_query.len());
+            for value in upcasted_query {
+                let buffer = value.downcast::<JsBuffer>().unwrap();
+                let vec = cx.borrow(
+                    &buffer,
+                    |buffer| buffer.as_slice().to_vec()
+                );
+                query.push(vec);
+            }
+
+            let proof = {
+                let this = cx.this();
+                let guard = cx.lock();
+                let handle = this.borrow(&guard);
+                let mut store = handle.store.lock().unwrap();
+                store.prove(query.as_slice()).unwrap()
+            };
+
+            let buffer = cx.buffer(proof.len() as u32)?;
+            for i in 0..proof.len() {
+                let n = cx.number(proof[i]);
+                buffer.set(&mut cx, i as u32, n)?;
+            }
+            Ok(buffer.upcast())
+        }
     }
 
     pub class JsBatch for Batch {
