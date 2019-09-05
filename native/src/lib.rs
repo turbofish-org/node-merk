@@ -1,13 +1,19 @@
 #[macro_use]
+extern crate error_chain;
+#[macro_use]
 extern crate neon;
 extern crate merk;
 
+mod error;
+
 use std::collections::BTreeMap;
+use std::ops::DerefMut;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Mutex;
 use merk::{Merk, Op};
 use neon::prelude::*;
+use error::*;
 
 pub struct MerkHandle {
     store: Rc<Mutex<Merk>>
@@ -22,15 +28,35 @@ pub struct Batch {
 // TODO: make this code succinct
 
 macro_rules! buffer_arg_to_vec {
-    ($cx:ident, $index:expr) => {
-        {
-            let buffer = $cx.argument::<JsBuffer>($index)?;
-            $cx.borrow(
-                &buffer,
-                |buffer| buffer.as_slice().to_vec()
-            )
+    ($cx:ident, $index:expr) => {{
+        let buffer = $cx.argument::<JsBuffer>($index)?;
+        $cx.borrow(
+            &buffer,
+            |buffer| buffer.as_slice().to_vec()
+        )
+    }};
+}
+
+macro_rules! borrow_store {
+    ($cx:ident, $op:expr) => {{
+        let res = {
+            let this = $cx.this();
+            let guard = $cx.lock();
+            let handle = this.borrow(&guard);
+            let res = handle.store.lock();
+            match res {
+                Err(_err) => Err("failed to acquire lock".into()),
+                Ok(mut store) => match ($op)(store.deref_mut()) {
+                    Err(err) => Err(err),
+                    Ok(value) => Ok(value)
+                }
+            }
+        };
+        match res {
+            Err(err) => return $cx.throw_error(err.description()),
+            Ok(value) => value
         }
-    };
+    }};
 }
 
 declare_types! {
@@ -38,20 +64,20 @@ declare_types! {
         init(mut cx) {
             let path = cx.argument::<JsString>(0)?.value();
             let path = Path::new(&path);
-            let store = Merk::open(path).unwrap();
-            Ok(MerkHandle { store: Rc::new(Mutex::new(store)) })
+            match Merk::open(path) {
+                Err(_err) => cx.throw_error("failed to open merk store"),
+                Ok(store) => Ok(MerkHandle {
+                    store: Rc::new(Mutex::new(store))
+                })
+            }
         }
 
         method getSync(mut cx) {
             let key = buffer_arg_to_vec!(cx, 0);
 
-            let value = {
-                let this = cx.this();
-                let guard = cx.lock();
-                let handle = this.borrow(&guard);
-                let store = handle.store.lock().unwrap();
-                store.get(key.as_slice()).unwrap()
-            };
+            let value = borrow_store!(cx, |store: &Merk| {
+                store.get(key.as_slice())
+            });
 
             let buffer = cx.buffer(value.len() as u32)?;
             for i in 0..value.len() {
@@ -62,13 +88,9 @@ declare_types! {
         }
 
         method rootHash(mut cx) {
-            let hash = {
-                let this = cx.this();
-                let guard = cx.lock();
-                let handle = this.borrow(&guard);
-                let store = handle.store.lock().unwrap();
-                store.root_hash()
-            };
+            let hash = borrow_store!(cx, |store: &Merk| -> Result<[u8; 20]> {
+                Ok(store.root_hash())
+            });
 
             let buffer = cx.buffer(20)?;
             for i in 0..20 {
@@ -84,14 +106,7 @@ declare_types! {
         }
 
         method flushSync(mut cx) {
-            {
-                let this = cx.this();
-                let guard = cx.lock();
-                let handle = this.borrow(&guard);
-                let store = handle.store.lock().unwrap();
-                store.flush().unwrap();
-            }
-
+            borrow_store!(cx, |store: &Merk| store.flush());
             Ok(cx.undefined().upcast())
         }
 
@@ -107,13 +122,9 @@ declare_types! {
                 query.push(vec);
             }
 
-            let proof = {
-                let this = cx.this();
-                let guard = cx.lock();
-                let handle = this.borrow(&guard);
-                let mut store = handle.store.lock().unwrap();
-                store.prove(query.as_slice()).unwrap()
-            };
+            let proof = borrow_store!(cx, |store: &mut Merk| {
+                store.prove(query.as_slice())
+            });
 
             let buffer = cx.buffer(proof.len() as u32)?;
             for i in 0..proof.len() {
@@ -183,27 +194,26 @@ declare_types! {
         }
 
         method commitSync(mut cx) {
-            let mut do_commit = || {
+            let maybe_ops = {
                 let mut this = cx.this();
                 let guard = cx.lock();
                 let mut handle = this.borrow_mut(&guard);
-
-                if let Some(ops) = handle.ops.take() {
-                    let mut batch = Vec::with_capacity(ops.len());
-                    for entry in ops {
-                        batch.push(entry);
-                    }
-                    let mut store = handle.store.lock().unwrap();
-                    store.apply(batch.as_slice()).unwrap();
-                    Ok(())
-                } else {
-                    Err("batch was already committed")
-                }
+                handle.ops.take()
             };
 
-            match do_commit() {
-                Ok(_) => Ok(cx.undefined().upcast()),
-                Err(err) => cx.throw_error(err)
+            if let Some(ops) = maybe_ops {
+                let mut batch = Vec::with_capacity(ops.len());
+                for entry in ops {
+                    batch.push(entry);
+                }
+
+                borrow_store!(cx, |store: &mut Merk| {
+                    store.apply(batch.as_slice())
+                });
+
+                Ok(cx.undefined().upcast())
+            } else {
+                cx.throw_error("batch was already committed")
             }
         }
 
