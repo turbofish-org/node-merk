@@ -110,7 +110,7 @@ declare_types! {
             Ok(cx.undefined().upcast())
         }
 
-        method prove(mut cx) {
+        method proveSync(mut cx) {
             let upcasted_query = cx.argument::<JsArray>(0)?.to_vec(&mut cx)?;
             let mut query = Vec::with_capacity(upcasted_query.len());
             for value in upcasted_query {
