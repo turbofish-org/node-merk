@@ -10,5 +10,15 @@
   },
   "scripts": {
     "install": "neon build"
-  }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nomic-io/node-merk.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/nomic-io/node-merk/issues"
+  },
+  "homepage": "https://github.com/nomic-io/node-merk#readme"
 }
