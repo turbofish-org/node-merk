@@ -5,13 +5,14 @@
   "main": "lib/index.js",
   "author": "Matt Bell <mappum@gmail.com>",
   "license": "MIT",
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "neon-cli": "^0.3.1"
   },
   "scripts": {
-    "install": "neon build"
+    "install": "./scripts/install.js",
+    "build": "npm i neon-cli && neon build --release"
   },
-  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nomic-io/node-merk.git"
