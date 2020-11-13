@@ -1,27 +1,22 @@
-#[macro_use]
-extern crate error_chain;
-#[macro_use]
-extern crate neon;
+extern crate failure;
 extern crate merk;
+extern crate neon;
 
-mod error;
-
+use merk::{Merk, Op};
+use neon::prelude::*;
 use std::collections::BTreeMap;
 use std::ops::DerefMut;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Mutex;
-use merk::{Merk, Op};
-use neon::prelude::*;
-use error::*;
 
 pub struct MerkHandle {
-    store: Rc<Mutex<Merk>>
+    store: Rc<Mutex<Merk>>,
 }
 
 pub struct Batch {
     ops: Option<BTreeMap<Vec<u8>, Op>>,
-    store: Rc<Mutex<Merk>>
+    store: Rc<Mutex<Merk>>,
 }
 
 // TODO: throw instead of panicking
@@ -30,10 +25,7 @@ pub struct Batch {
 macro_rules! buffer_arg_to_vec {
     ($cx:ident, $index:expr) => {{
         let buffer = $cx.argument::<JsBuffer>($index)?;
-        $cx.borrow(
-            &buffer,
-            |buffer| buffer.as_slice().to_vec()
-        )
+        $cx.borrow(&buffer, |buffer| buffer.as_slice().to_vec())
     }};
 }
 
@@ -45,16 +37,13 @@ macro_rules! borrow_store {
             let handle = this.borrow(&guard);
             let res = handle.store.lock();
             match res {
-                Err(_err) => Err("failed to acquire lock".into()),
-                Ok(mut store) => match ($op)(store.deref_mut()) {
-                    Err(err) => Err(err),
-                    Ok(value) => Ok(value)
-                }
+                Err(_err) => panic!("failed to acquire lock"),
+                Ok(mut store) => ($op)(store.deref_mut()),
             }
         };
         match res {
-            Err(err) => return $cx.throw_error(err.description()),
-            Ok(value) => value
+            Err(err) => panic!(err),
+            Ok(value) => value,
         }
     }};
 }
@@ -74,10 +63,14 @@ declare_types! {
 
         method getSync(mut cx) {
             let key = buffer_arg_to_vec!(cx, 0);
-
             let value = borrow_store!(cx, |store: &Merk| {
                 store.get(key.as_slice())
             });
+
+            let value = match value {
+                Some(value) => value,
+                None => panic!("no value found for key")
+            };
 
             let buffer = cx.buffer(value.len() as u32)?;
             for i in 0..value.len() {
@@ -88,9 +81,10 @@ declare_types! {
         }
 
         method rootHash(mut cx) {
-            let hash = borrow_store!(cx, |store: &Merk| -> Result<[u8; 20]> {
+            let hash = borrow_store!(cx, |store: &Merk| -> Result<[u8; 20], failure::Error> {
                 Ok(store.root_hash())
             });
+
 
             let buffer = cx.buffer(20)?;
             for i in 0..20 {
@@ -125,6 +119,7 @@ declare_types! {
             let proof = borrow_store!(cx, |store: &mut Merk| {
                 store.prove(query.as_slice())
             });
+
 
             let buffer = cx.buffer(proof.len() as u32)?;
             for i in 0..proof.len() {
@@ -208,7 +203,7 @@ declare_types! {
                 }
 
                 borrow_store!(cx, |store: &mut Merk| {
-                    store.apply(batch.as_slice())
+                    store.apply(batch.as_slice(), &[])
                 });
 
                 Ok(cx.undefined().upcast())
@@ -223,6 +218,4 @@ declare_types! {
     }
 }
 
-register_module!(mut m, {
-    m.export_class::<JsMerk>("Merk")
-});
+register_module!(mut m, { m.export_class::<JsMerk>("Merk") });
