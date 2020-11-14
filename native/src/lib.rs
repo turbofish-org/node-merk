@@ -120,7 +120,6 @@ declare_types! {
                 store.prove(query.as_slice())
             });
 
-
             let buffer = cx.buffer(proof.len() as u32)?;
             for i in 0..proof.len() {
                 let n = cx.number(proof[i]);
@@ -218,4 +217,60 @@ declare_types! {
     }
 }
 
-register_module!(mut m, { m.export_class::<JsMerk>("Merk") });
+fn verify_proof(mut cx: FunctionContext) -> JsResult<JsValue> {
+    let proof_bytes: Vec<u8> = buffer_arg_to_vec!(cx, 0);
+    let keys = cx.argument::<JsArray>(1)?.to_vec(&mut cx)?;
+    let keys: Vec<Vec<u8>> = keys
+        .iter()
+        .map(|handle: &Handle<JsValue>| -> Handle<JsBuffer> {
+            let res = handle.downcast::<JsBuffer>();
+            match res {
+                Ok(buffer) => buffer,
+                Err(_err) => panic!("invalid proof key"),
+            }
+        })
+        .map(|buffer| -> Vec<u8> {
+            let guard = cx.lock();
+            let buffer = buffer.borrow(&guard);
+            buffer.as_slice().to_vec()
+        })
+        .collect();
+    let expected_hash_bytes: Vec<u8> = buffer_arg_to_vec!(cx, 2);
+    let mut expected_hash: merk::Hash = [0; 20];
+    for i in 0..20 {
+        let n = expected_hash_bytes[i];
+        expected_hash[i] = n;
+    }
+
+    let res = merk::verify_proof(proof_bytes.as_slice(), keys.as_slice(), expected_hash);
+    let js_result = match res {
+        Ok(entries) => {
+            let js_result = JsArray::new(&mut cx, entries.len() as u32);
+            for (i, entry) in entries.iter().enumerate() {
+                let value: Handle<JsValue> = match entry {
+                    Some(value_bytes) => {
+                        let buffer = cx.buffer(value_bytes.len() as u32).unwrap();
+                        for j in 0..value_bytes.len() {
+                            let n = cx.number(value_bytes[j]);
+                            buffer.set(&mut cx, j as u32, n)?;
+                        }
+
+                        buffer.upcast()
+                    }
+                    None => cx.null().upcast(),
+                };
+
+                js_result.set(&mut cx, i as u32, value)?;
+            }
+            js_result.upcast()
+        }
+        Err(err) => panic!(err),
+    };
+
+    Ok(js_result)
+}
+
+register_module!(mut m, {
+    m.export_class::<JsMerk>("Merk")?;
+    m.export_function("verifyProof", verify_proof)
+});
