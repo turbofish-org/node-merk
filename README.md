@@ -7,10 +7,10 @@
 `npm install merk`
 
 ```js
-let merk = require('merk')
+let { Merk, verifyProof } = require('merk')
 
 // create or load store
-let db = merk('./state.db')
+let db = Merk('./state.db')
 
 // get value
 let value = db.getSync(Buffer.from('mykey'))
@@ -19,10 +19,14 @@ let value = db.getSync(Buffer.from('mykey'))
 let hash = db.rootHash()
 
 // create merkle proof
-let proof = db.proveSync([
+let keys = [
   Buffer.from('key1'),
   Buffer.from('key2')
-])
+]
+let proof = db.proveSync(keys)
+
+// verify a merkle proof
+let proofResult = verifyProof(proof, keys, db.rootHash())
 
 // modify values
 db.batch()
