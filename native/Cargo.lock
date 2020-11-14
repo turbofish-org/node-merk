@@ -447,7 +447,9 @@ dependencies = [
 
 [[package]]
 name = "merk"
-version = "1.0.0"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc5cb8b5b0296d448120e39e459aed9fc3cafdfbcbf186ad3330871ce1f9025"
 dependencies = [
  "blake2-rfc",
  "byteorder",
