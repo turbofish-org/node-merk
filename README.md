@@ -22,6 +22,9 @@ db.batch().delete(Buffer.from('key1')).applySync()
 // for now, after applying changes, you must commit before computing root hash / making proofs
 db.commitSync()
 
+// clear applied-but-uncommitted changes
+db.clear()
+
 // get value
 let value = db.getSync(Buffer.from('key2'))
 
@@ -38,5 +41,9 @@ let proof = db.proveSync(keys)
 // verify a merkle proof
 let proofResult = verifyProof(proof, keys, db.rootHash())
 console.log(proofResult)
+
+
+// close Merk and the underlying RocksDB instance
+db.close()
 
 ```
