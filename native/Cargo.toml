@@ -15,5 +15,5 @@ neon-build = "0.5.1"
 
 [dependencies]
 neon = "0.5.1"
-merk = "1.0.1"
+merk = "2.0.1"
 failure = "0.1.6"
