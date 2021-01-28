@@ -11,12 +11,12 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 pub struct MerkHandle {
-    store: Rc<Mutex<Merk>>,
+    pub store: Rc<Mutex<Option<Merk>>>,
 }
 
 pub struct Batch {
     ops: Option<BTreeMap<Vec<u8>, Op>>,
-    store: Rc<Mutex<Merk>>,
+    store: Rc<Mutex<Option<Merk>>>,
 }
 
 // TODO: throw instead of panicking
@@ -38,7 +38,7 @@ macro_rules! borrow_store {
             let res = handle.store.lock();
             match res {
                 Err(_err) => panic!("failed to acquire lock"),
-                Ok(mut store) => ($op)(store.deref_mut()),
+                Ok(mut store) => ($op)(store.deref_mut().as_mut().expect("Merk is closed")),
             }
         };
         match res {
@@ -56,7 +56,7 @@ declare_types! {
             match Merk::open(path) {
                 Err(_err) => cx.throw_error("failed to open merk store"),
                 Ok(store) => Ok(MerkHandle {
-                    store: Rc::new(Mutex::new(store))
+                    store: Rc::new(Mutex::new(Some(store)))
                 })
             }
         }
@@ -100,7 +100,37 @@ declare_types! {
         }
 
         method flushSync(mut cx) {
-            borrow_store!(cx, |store: &Merk| store.flush());
+            borrow_store!(cx, |store: &mut Merk| store.flush());
+            Ok(cx.undefined().upcast())
+        }
+
+
+        method clear(mut cx) {
+            borrow_store!(cx, |store: &mut Merk| store.clear());
+            Ok(cx.undefined().upcast())
+        }
+
+        method close(mut cx) {
+            let rv = cx.undefined().upcast();
+            let this = cx.this();
+            let guard = cx.lock();
+            let handle = this.borrow(&guard);
+            let res = handle.store.lock();
+            match res {
+                Ok(mut store) => {
+                    store.take();
+                }
+                _=>panic!("Failed to close store")
+            }
+            Ok(rv)
+        }
+
+
+        method commitSync(mut cx) {
+            borrow_store!(cx, |store: &mut Merk| {
+                store.commit(&[])
+            });
+
             Ok(cx.undefined().upcast())
         }
 
@@ -116,7 +146,7 @@ declare_types! {
                 query.push(vec);
             }
 
-            let proof = borrow_store!(cx, |store: &mut Merk| {
+            let proof = borrow_store!(cx, |store: &Merk| {
                 store.prove(query.as_slice())
             });
 
@@ -187,7 +217,8 @@ declare_types! {
             }
         }
 
-        method commitSync(mut cx) {
+
+        method applySync(mut cx) {
             let maybe_ops = {
                 let mut this = cx.this();
                 let guard = cx.lock();
@@ -202,7 +233,7 @@ declare_types! {
                 }
 
                 borrow_store!(cx, |store: &mut Merk| {
-                    store.apply(batch.as_slice(), &[])
+                    store.apply(batch.as_slice())
                 });
 
                 Ok(cx.undefined().upcast())
