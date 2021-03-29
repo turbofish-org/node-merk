@@ -2,7 +2,8 @@ extern crate failure;
 extern crate merk;
 extern crate neon;
 
-use merk::{Merk, Op};
+use merk::chunks::ChunkProducer;
+use merk::{proofs::verify_query, Merk, Op};
 use neon::prelude::*;
 use std::collections::BTreeMap;
 use std::ops::DerefMut;
@@ -12,11 +13,13 @@ use std::sync::Mutex;
 
 pub struct MerkHandle {
     pub store: Rc<Mutex<Option<Merk>>>,
+    chunk_producer: Rc<Mutex<Option<ChunkProducer<'static>>>>,
 }
 
 pub struct Batch {
     ops: Option<BTreeMap<Vec<u8>, Op>>,
     store: Rc<Mutex<Option<Merk>>>,
+    chunk_producer: Rc<Mutex<Option<ChunkProducer<'static>>>>,
 }
 
 // TODO: throw instead of panicking
@@ -56,7 +59,8 @@ declare_types! {
             match Merk::open(path) {
                 Err(_err) => cx.throw_error("failed to open merk store"),
                 Ok(store) => Ok(MerkHandle {
-                    store: Rc::new(Mutex::new(Some(store)))
+                    store: Rc::new(Mutex::new(Some(store))),
+                    chunk_producer: Rc::new(Mutex::new(None)),
                 })
             }
         }
@@ -77,6 +81,43 @@ declare_types! {
                 let n = cx.number(value[i]);
                 buffer.set(&mut cx, i as u32, n)?;
             }
+            Ok(buffer.upcast())
+        }
+
+        method getChunk(mut cx) {
+            let chunk_index = cx.argument::<JsNumber>(0)?.value() as usize;
+            let mut this = cx.this();
+            let guard = cx.lock();
+            let chunk = {
+                let mut handle = this.borrow_mut(&guard);
+                if handle.chunk_producer.lock().unwrap().as_ref().is_none() {
+                    let merk: &'static Merk = {
+
+                        let mut lock = handle.store.lock().unwrap();
+                        let store = lock.as_mut().expect("96");
+                        let ptr: *mut Merk = store;
+                        unsafe {
+                            std::mem::transmute(ptr)
+                        }
+                    };
+
+                    let cp = Rc::new(Mutex::new(Some(ChunkProducer::new(merk).expect("102"))));
+
+                    handle.chunk_producer = cp;
+
+                }
+
+                let mut lock = handle.chunk_producer.lock().unwrap();
+                let cp = lock.as_mut().expect("107");
+                cp.chunk(chunk_index).expect("108")
+             };
+
+            let buffer = cx.buffer(chunk.len() as u32)?;
+            for i in 0..chunk.len() {
+                let n = cx.number(chunk[i]);
+                buffer.set(&mut cx, i as u32, n)?;
+            }
+
             Ok(buffer.upcast())
         }
 
@@ -105,11 +146,6 @@ declare_types! {
         }
 
 
-        method clear(mut cx) {
-            borrow_store!(cx, |store: &mut Merk| store.clear());
-            Ok(cx.undefined().upcast())
-        }
-
         method close(mut cx) {
             let rv = cx.undefined().upcast();
             let this = cx.this();
@@ -123,15 +159,6 @@ declare_types! {
                 _=>panic!("Failed to close store")
             }
             Ok(rv)
-        }
-
-
-        method commitSync(mut cx) {
-            borrow_store!(cx, |store: &mut Merk| {
-                store.commit(&[])
-            });
-
-            Ok(cx.undefined().upcast())
         }
 
         method proveSync(mut cx) {
@@ -159,6 +186,8 @@ declare_types! {
         }
     }
 
+
+
     pub class JsBatch for Batch {
         init(mut cx) {
             let merk = cx.argument::<JsMerk>(0)?;
@@ -166,7 +195,8 @@ declare_types! {
             let handle = merk.borrow(&guard);
             Ok(Batch {
                 ops: Some(BTreeMap::new()),
-                store: handle.store.clone()
+                store: handle.store.clone(),
+                chunk_producer: handle.chunk_producer.clone(),
             })
         }
 
@@ -217,8 +247,14 @@ declare_types! {
             }
         }
 
-
-        method applySync(mut cx) {
+        method commitSync(mut cx) {
+            {
+                 let mut this = cx.this();
+                let guard = cx.lock();
+                let mut handle = this.borrow_mut(&guard);
+                let mut lock = handle.chunk_producer.lock().unwrap();
+                lock.deref_mut().take();
+            }
             let maybe_ops = {
                 let mut this = cx.this();
                 let guard = cx.lock();
@@ -233,17 +269,13 @@ declare_types! {
                 }
 
                 borrow_store!(cx, |store: &mut Merk| {
-                    store.apply(batch.as_slice())
+                    store.apply(batch.as_slice(), &[])
                 });
 
                 Ok(cx.undefined().upcast())
             } else {
                 cx.throw_error("batch was already committed")
             }
-        }
-
-        method commit(mut cx) {
-            cx.throw_error("not yet implemented")
         }
     }
 }
@@ -273,7 +305,7 @@ fn verify_proof(mut cx: FunctionContext) -> JsResult<JsValue> {
         expected_hash[i] = n;
     }
 
-    let res = merk::verify_proof(proof_bytes.as_slice(), keys.as_slice(), expected_hash);
+    let res = verify_query(proof_bytes.as_slice(), keys.as_slice(), expected_hash);
     let js_result = match res {
         Ok(entries) => {
             let js_result = JsArray::new(&mut cx, entries.len() as u32);
