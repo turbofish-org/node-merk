@@ -86,31 +86,9 @@ declare_types! {
 
         method getChunk(mut cx) {
             let chunk_index = cx.argument::<JsNumber>(0)?.value() as usize;
-            let mut this = cx.this();
-            let guard = cx.lock();
-            let chunk = {
-                let mut handle = this.borrow_mut(&guard);
-                if handle.chunk_producer.lock().unwrap().as_ref().is_none() {
-                    let merk: &'static Merk = {
-
-                        let mut lock = handle.store.lock().unwrap();
-                        let store = lock.as_mut().expect("96");
-                        let ptr: *mut Merk = store;
-                        unsafe {
-                            std::mem::transmute(ptr)
-                        }
-                    };
-
-                    let cp = Rc::new(Mutex::new(Some(ChunkProducer::new(merk).expect("102"))));
-
-                    handle.chunk_producer = cp;
-
-                }
-
-                let mut lock = handle.chunk_producer.lock().unwrap();
-                let cp = lock.as_mut().expect("107");
-                cp.chunk(chunk_index).expect("108")
-             };
+            let chunk = use_chunk_producer(&mut cx, |cp|{
+                cp.chunk(chunk_index).unwrap()
+            });
 
             let buffer = cx.buffer(chunk.len() as u32)?;
             for i in 0..chunk.len() {
@@ -121,11 +99,15 @@ declare_types! {
             Ok(buffer.upcast())
         }
 
+        method numChunks(mut cx) {
+            let chunk_len =  use_chunk_producer(&mut cx, |cp| cp.len() as u32);
+            Ok(cx.number(chunk_len).upcast())
+        }
+
         method rootHash(mut cx) {
             let hash = borrow_store!(cx, |store: &Merk| -> Result<[u8; 20], failure::Error> {
                 Ok(store.root_hash())
             });
-
 
             let buffer = cx.buffer(20)?;
             for i in 0..20 {
@@ -144,7 +126,6 @@ declare_types! {
             borrow_store!(cx, |store: &mut Merk| store.flush());
             Ok(cx.undefined().upcast())
         }
-
 
         method close(mut cx) {
             let rv = cx.undefined().upcast();
@@ -249,7 +230,7 @@ declare_types! {
 
         method commitSync(mut cx) {
             {
-                 let mut this = cx.this();
+                let mut this = cx.this();
                 let guard = cx.lock();
                 let mut handle = this.borrow_mut(&guard);
                 let mut lock = handle.chunk_producer.lock().unwrap();
@@ -331,6 +312,32 @@ fn verify_proof(mut cx: FunctionContext) -> JsResult<JsValue> {
     };
 
     Ok(js_result)
+}
+
+fn use_chunk_producer<'a, T, F: FnMut(&mut ChunkProducer) -> T>(
+    cx: &'a mut CallContext<JsMerk>,
+    mut op: F,
+) -> T {
+    let mut this = cx.this();
+    let guard = cx.lock();
+
+    let mut handle = this.borrow_mut(&guard);
+    if handle.chunk_producer.lock().unwrap().as_ref().is_none() {
+        let merk: &'static Merk = {
+            let mut lock = handle.store.lock().unwrap();
+            let store = lock.as_mut().unwrap();
+            let ptr: *mut Merk = store;
+            unsafe { std::mem::transmute(ptr) }
+        };
+
+        let cp = Rc::new(Mutex::new(Some(ChunkProducer::new(merk).unwrap())));
+
+        handle.chunk_producer = cp;
+    }
+
+    let mut lock = handle.chunk_producer.lock().unwrap();
+    let cp = lock.as_mut().unwrap();
+    op(cp)
 }
 
 register_module!(mut m, {
