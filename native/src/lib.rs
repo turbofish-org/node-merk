@@ -45,7 +45,7 @@ macro_rules! borrow_store {
             }
         };
         match res {
-            Err(err) => panic!(err),
+            Err(err) => panic!("{}", err),
             Ok(value) => value,
         }
     }};
@@ -164,6 +164,15 @@ declare_types! {
                 buffer.set(&mut cx, i as u32, n)?;
             }
             Ok(buffer.upcast())
+        }
+
+        method checkpoint(mut cx) {
+            let path = cx.argument::<JsString>(0)?;
+            borrow_store!(cx, |store: &Merk|{
+                store.checkpoint(Path::new(&path.value()))
+            });
+
+            Ok(cx.undefined().upcast())
         }
     }
 
