@@ -228,7 +228,7 @@ let acceptedSnapshot = { height, chunks, appHash }
 
 No Merk interaction required here.
 
-# `ApplySnapshotChunk`
+### `ApplySnapshotChunk`
 [ApplySnapshotChunk](https://docs.tendermint.com/master/spec/abci/abci.html#applysnapshotchunk)
 
 You're a syncing node, and you've accepted a snapshot. Here's where you receive

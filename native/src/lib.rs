@@ -22,6 +22,10 @@ pub struct Batch {
     chunk_producer: Rc<Mutex<Option<ChunkProducer<'static>>>>,
 }
 
+pub struct Restorer {
+    restorer: Option<merk::restore::Restorer>,
+}
+
 // TODO: throw instead of panicking
 // TODO: make this code succinct
 
@@ -84,7 +88,7 @@ declare_types! {
             Ok(buffer.upcast())
         }
 
-        method getChunk(mut cx) {
+        method getChunkSync(mut cx) {
             let chunk_index = cx.argument::<JsNumber>(0)?.value() as usize;
             let chunk = use_chunk_producer(&mut cx, |cp|{
                 cp.chunk(chunk_index).unwrap()
@@ -166,7 +170,7 @@ declare_types! {
             Ok(buffer.upcast())
         }
 
-        method checkpoint(mut cx) {
+        method checkpointSync(mut cx) {
             let path = cx.argument::<JsString>(0)?;
             borrow_store!(cx, |store: &Merk|{
                 store.checkpoint(Path::new(&path.value()))
@@ -174,6 +178,8 @@ declare_types! {
 
             Ok(cx.undefined().upcast())
         }
+
+
     }
 
 
@@ -268,6 +274,57 @@ declare_types! {
             }
         }
     }
+
+    pub class JsRestorer for Restorer {
+        init(mut cx) {
+            let path = cx.argument::<JsString>(0)?.value();
+            let path = Path::new(&path);
+            let mut expected_hash_bytes = [0; 20];
+
+            for (k, v) in buffer_arg_to_vec!(cx, 1).iter().enumerate() {
+                expected_hash_bytes[k] = *v;
+            }
+            let stated_length = cx.argument::<JsNumber>(2)?.value() as usize;
+            let restorer = Some(merk::Merk::restore(path, expected_hash_bytes, stated_length).unwrap());
+            Ok(Restorer { restorer })
+        }
+
+        method processChunkSync(mut cx) {
+            {
+                let chunk_bytes = buffer_arg_to_vec!(cx, 0);
+                let mut this = cx.this();
+                let guard = cx.lock();
+                let mut handle = this.borrow_mut(&guard);
+                handle.restorer.as_mut().expect("Restorer has already been finalized").process_chunk(chunk_bytes.as_slice()).unwrap();
+            }
+            Ok(cx.undefined().upcast())
+        }
+
+        method remainingChunks(mut cx) {
+            let remaining_chunks = {
+               let mut this = cx.this();
+               let guard = cx.lock();
+               let mut handle = this.borrow_mut(&guard);
+               handle.restorer.as_ref().expect("Restorer has already been finalized").remaining_chunks()
+            };
+            match remaining_chunks {
+                Some(n) => Ok(cx.number(n as u32).upcast()),
+                None => Ok(cx.null().upcast())
+            }
+        }
+
+        method finalizeSync(mut cx) {
+            {
+                let mut this = cx.this();
+                let guard = cx.lock();
+                let mut handle = this.borrow_mut(&guard);
+                handle.restorer.take().expect("Restorer has already been finalized").finalize().unwrap();
+            }
+
+            Ok(cx.undefined().upcast())
+        }
+    }
+
 }
 
 fn verify_proof(mut cx: FunctionContext) -> JsResult<JsValue> {
@@ -351,5 +408,6 @@ fn use_chunk_producer<'a, T, F: FnMut(&mut ChunkProducer) -> T>(
 
 register_module!(mut m, {
     m.export_class::<JsMerk>("Merk")?;
+    m.export_class::<JsRestorer>("Restorer")?;
     m.export_function("verifyProof", verify_proof)
 });
