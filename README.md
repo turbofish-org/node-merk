@@ -72,6 +72,10 @@ manually.
 #### `db.close()`
 Gracefully shut down Merk and RocksDB before a process exit, say.
 
+#### `db.destroy()`
+Closes the database and removes all stored data from disk. Useful for cleaning
+up checkpoints.
+
 #### `db.checkpoint(path)`
 Create a checkpoint at the desired path. A checkpoint is an immutable view of
 the current tree state.

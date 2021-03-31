@@ -131,6 +131,23 @@ declare_types! {
             Ok(cx.undefined().upcast())
         }
 
+        method destroy(mut cx) {
+
+            let rv = cx.undefined().upcast();
+            let this = cx.this();
+            let guard = cx.lock();
+            let handle = this.borrow(&guard);
+            let res = handle.store.lock();
+            match res {
+                Ok(mut store) => {
+                    store.take().unwrap().destroy().unwrap();
+                }
+                _=>panic!("Failed to close store")
+            }
+
+            Ok(rv)
+        }
+
         method close(mut cx) {
             let rv = cx.undefined().upcast();
             let this = cx.this();
