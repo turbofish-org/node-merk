@@ -132,7 +132,6 @@ declare_types! {
         }
 
         method destroy(mut cx) {
-
             let rv = cx.undefined().upcast();
             let this = cx.this();
             let guard = cx.lock();
@@ -142,7 +141,7 @@ declare_types! {
                 Ok(mut store) => {
                     store.take().unwrap().destroy().unwrap();
                 }
-                _=>panic!("Failed to close store")
+                _=>panic!("Failed to destroy store")
             }
 
             Ok(rv)
@@ -264,7 +263,7 @@ declare_types! {
             {
                 let mut this = cx.this();
                 let guard = cx.lock();
-                let mut handle = this.borrow_mut(&guard);
+                let handle = this.borrow_mut(&guard);
                 let mut lock = handle.chunk_producer.lock().unwrap();
                 lock.deref_mut().take();
             }
@@ -321,7 +320,7 @@ declare_types! {
             let remaining_chunks = {
                let mut this = cx.this();
                let guard = cx.lock();
-               let mut handle = this.borrow_mut(&guard);
+               let handle = this.borrow_mut(&guard);
                handle.restorer.as_ref().expect("Restorer has already been finalized").remaining_chunks()
             };
             match remaining_chunks {
@@ -391,7 +390,7 @@ fn verify_proof(mut cx: FunctionContext) -> JsResult<JsValue> {
             }
             js_result.upcast()
         }
-        Err(err) => panic!(err),
+        Err(err) => panic!("{}", err),
     };
 
     Ok(js_result)
