@@ -10,20 +10,20 @@ tree library built on RocksDB.*
 ```js
 let { Merk, verifyProof, restore } = require('merk')
 
-let keys = ['key1', 'key2'].map(Buffer.from)
-let values = ['value1', 'value2'].map(Buffer.from)
+let keys = [Buffer.from('key1'), Buffer.from('key2')]
+let values = [Buffer.from('value1'), Buffer.from('value2')]
 
 // create or load store
 let db = Merk('./state.db')
 
 // write some values
 db.batch()
-  .put(key1, value1)
-  .put(key2, value2)
+  .put(keys[0], values[0])
+  .put(keys[1], values[1])
   .commitSync()
 
 // get a value
-let value = db.getSync(key1)
+let value = db.getSync(keys[0])
 
 // get the Merkle root
 let hash = db.rootHash()
