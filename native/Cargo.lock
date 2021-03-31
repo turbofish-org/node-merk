@@ -375,6 +375,7 @@ dependencies = [
 [[package]]
 name = "merk"
 version = "1.0.0"
+source = "git+https://github.com/nomic-io/merk?branch=chunk_proofs#2f5b0d0421e34e30365afe4029f2beb5d16e926f"
 dependencies = [
  "blake2-rfc",
  "byteorder",
