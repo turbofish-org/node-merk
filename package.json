@@ -5,11 +5,12 @@
   "main": "lib/index.js",
   "author": "Matt Bell <mappum@gmail.com>",
   "license": "MIT",
-  "dependencies": {},
   "devDependencies": {
+    "ava": "^3.15.0",
     "neon-cli": "=0.8.0"
   },
   "scripts": {
+    "test": "ava --timeout=10m",
     "build": "neon build --release"
   },
   "repository": {
