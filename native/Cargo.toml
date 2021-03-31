@@ -11,9 +11,9 @@ name = "node_merk"
 crate-type = ["cdylib"]
 
 [build-dependencies]
-neon-build = "0.5.1"
+neon-build = "0.8.0"
 
 [dependencies]
-neon = "0.5.1"
-merk = "2.0.1"
+neon = "0.8.0"
+merk = { git = "https://github.com/nomic-io/merk", branch = "chunk_proofs" }
 failure = "0.1.6"
