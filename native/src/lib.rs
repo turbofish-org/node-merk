@@ -3,7 +3,7 @@ extern crate merk;
 extern crate neon;
 
 use merk::chunks::ChunkProducer;
-use merk::{proofs::verify_query, Merk, Op};
+use merk::{proofs::Query, verify, Merk, Op};
 use neon::prelude::*;
 use std::collections::BTreeMap;
 use std::ops::DerefMut;
@@ -109,12 +109,12 @@ declare_types! {
         }
 
         method rootHash(mut cx) {
-            let hash = borrow_store!(cx, |store: &Merk| -> Result<[u8; 20], failure::Error> {
+            let hash = borrow_store!(cx, |store: &Merk| -> Result<[u8; 32], failure::Error> {
                 Ok(store.root_hash())
             });
 
-            let buffer = cx.buffer(20)?;
-            for i in 0..20 {
+            let buffer = cx.buffer(32)?;
+            for i in 0..32 {
                 let n = cx.number(hash[i]);
                 buffer.set(&mut cx, i as u32, n)?;
             }
@@ -164,18 +164,21 @@ declare_types! {
 
         method proveSync(mut cx) {
             let upcasted_query = cx.argument::<JsArray>(0)?.to_vec(&mut cx)?;
-            let mut query = Vec::with_capacity(upcasted_query.len());
+            // let mut query = Vec::with_capacity(upcasted_query.len());
+            let mut query = Query::new();
+
+
             for value in upcasted_query {
                 let buffer = value.downcast::<JsBuffer>().unwrap();
-                let vec = cx.borrow(
+                let key = cx.borrow(
                     &buffer,
                     |buffer| buffer.as_slice().to_vec()
                 );
-                query.push(vec);
+                query.insert_key(key);
             }
 
             let proof = borrow_store!(cx, |store: &Merk| {
-                store.prove(query.as_slice())
+                store.prove(query)
             });
 
             let buffer = cx.buffer(proof.len() as u32)?;
@@ -295,7 +298,7 @@ declare_types! {
         init(mut cx) {
             let path = cx.argument::<JsString>(0)?.value();
             let path = Path::new(&path);
-            let mut expected_hash_bytes = [0; 20];
+            let mut expected_hash_bytes = [0; 32];
 
             for (k, v) in buffer_arg_to_vec!(cx, 1).iter().enumerate() {
                 expected_hash_bytes[k] = *v;
@@ -362,38 +365,36 @@ fn verify_proof(mut cx: FunctionContext) -> JsResult<JsValue> {
         })
         .collect();
     let expected_hash_bytes: Vec<u8> = buffer_arg_to_vec!(cx, 2);
-    let mut expected_hash: merk::Hash = [0; 20];
-    for i in 0..20 {
+    let mut expected_hash: merk::Hash = [0; 32];
+    for i in 0..32 {
         let n = expected_hash_bytes[i];
         expected_hash[i] = n;
     }
 
-    let res = verify_query(proof_bytes.as_slice(), keys.as_slice(), expected_hash);
-    let js_result = match res {
-        Ok(entries) => {
-            let js_result = JsArray::new(&mut cx, entries.len() as u32);
-            for (i, entry) in entries.iter().enumerate() {
-                let value: Handle<JsValue> = match entry {
-                    Some(value_bytes) => {
-                        let buffer = cx.buffer(value_bytes.len() as u32).unwrap();
-                        for j in 0..value_bytes.len() {
-                            let n = cx.number(value_bytes[j]);
-                            buffer.set(&mut cx, j as u32, n)?;
-                        }
+    let entries = verify(proof_bytes.as_slice(), expected_hash).expect("Failed to parse proof");
 
-                        buffer.upcast()
-                    }
-                    None => cx.null().upcast(),
-                };
+    let js_result = JsArray::new(&mut cx, 0);
+    for (i, key) in keys.iter().enumerate() {
+        let entry = entries
+            .get(key.as_slice())
+            .expect(&format!("Failed to parse proof for key {:?}", key)[..]);
+        let value: Handle<JsValue> = match entry {
+            Some(value_bytes) => {
+                let buffer = cx.buffer(value_bytes.len() as u32).unwrap();
+                for j in 0..value_bytes.len() {
+                    let n = cx.number(value_bytes[j]);
+                    buffer.set(&mut cx, j as u32, n)?;
+                }
 
-                js_result.set(&mut cx, i as u32, value)?;
+                buffer.upcast()
             }
-            js_result.upcast()
-        }
-        Err(err) => panic!("{}", err),
-    };
+            None => cx.null().upcast(),
+        };
 
-    Ok(js_result)
+        js_result.set(&mut cx, i as u32, value)?;
+    }
+
+    Ok(js_result.upcast())
 }
 
 fn use_chunk_producer<'a, T, F: FnMut(&mut ChunkProducer) -> T>(
