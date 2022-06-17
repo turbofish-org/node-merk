@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 neon-build = "0.8.0"
 
 [dependencies]
-neon = "0.8.0"
+neon = "0.10.1"
 merk = { git = "https://github.com/nomic-io/merk", rev = "a613a054001f28b9f23d7576ae92ec8a2922168c"}
 # merk = { path = "../../merk" }
 failure = "0.1.6"
